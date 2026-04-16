@@ -14,4 +14,5 @@ namespace FileSize
     }
 
     public record FileModel(string Name, long Size);
+
 }
