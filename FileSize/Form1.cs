@@ -1,8 +1,4 @@
 using System.Collections.Concurrent;
-using System.IO;
-using System.Timers;
-using static FileSize.Form1;
-using static System.Windows.Forms.VisualStyles.VisualStyleElement;
 using System.Reflection;
 
 
@@ -86,50 +82,7 @@ namespace FileSize
             parent.Nodes.AddRange(sortedNodes);
         }
 
-        private long ScanDirectorySafe(DirectoryInfo dir, TreeNode node)
-        {
-            long totalSize = 0;
-
-            try
-            {
-                // 1. Process Files
-                foreach (var file in dir.GetFiles())
-                {
-                    totalSize += file.Length;
-                    this.Invoke(() => {
-                        node.Nodes.Add(new TreeNode($"{file.Name} [{FormatSize(file.Length)}]"));
-                    });
-                }
-
-                // 2. Process Subdirectories
-                foreach (var subDir in dir.GetDirectories())
-                {
-                    // SKIP JUNCTION POINTS (This is why User folders fail!)
-                    if ((subDir.Attributes & FileAttributes.ReparsePoint) == FileAttributes.ReparsePoint)
-                        continue;
-
-                    var subNode = new TreeNode(subDir.Name);
-                    this.Invoke(() => node.Nodes.Add(subNode));
-
-                    // Recursive call to get the size of the child
-                    long subDirSize = ScanDirectorySafe(subDir, subNode);
-                    totalSize += subDirSize;
-
-                    // Update the node text with its total calculated size
-                    this.Invoke(() => subNode.Text += $" - [{FormatSize(subDirSize)}]");
-                }
-            }
-            catch (UnauthorizedAccessException)
-            {
-                this.Invoke(() => {
-                    node.ForeColor = Color.Red;
-                    node.Text += " (Locked)";
-                });
-            }
-
-            return totalSize;
-        }
-
+       
         public long GetDirectorySize(DirectoryInfo d)
         {
             long size = 0;
@@ -157,6 +110,7 @@ namespace FileSize
             public long Size { get; set; }
             public bool IsFolder { get; set; }
         }
+
         private async void btnScan_Click(object sender, EventArgs e)
         {
             using var fbd = new FolderBrowserDialog();
