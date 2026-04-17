@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Reflection;
 
 
@@ -276,6 +277,7 @@ namespace FileSize
                 foreach (var file in files)
                 {
                     var item = new ListViewItem(file.Name);
+                    item.Name = file.FullName; // Store full path for context menu actions
                     item.SubItems.Add(FormatSize(file.Length));
                     item.SubItems.Add(file.Extension.ToUpper().Replace(".", "") + " File");
 
@@ -291,5 +293,31 @@ namespace FileSize
                 listViewFiles.EndUpdate();
             }
         }
+
+        private void treeView1_NodeMouseClick(object sender, TreeNodeMouseClickEventArgs e)
+        {
+            // Ensure the node clicked is actually selected before the menu pops up
+            if (e.Button == MouseButtons.Right)
+            {
+                treeView1.SelectedNode = e.Node;
+            }
+        }
+
+        private void openInFileExplorerToolStripMenuItem_Click(object sender, EventArgs e)
+        {
+            string path = "";
+
+            // Check if the TreeView or ListView is focused
+            if (treeView1.Focused)
+                path = treeView1.SelectedNode?.Name;
+            else if (listViewFiles.Focused && listViewFiles.SelectedItems.Count > 0)
+                path = listViewFiles.SelectedItems[0].Name; // Ensure you set .Name when adding items to ListView!
+
+            if (!string.IsNullOrEmpty(path))
+            {
+                Process.Start("explorer.exe", $"/select,\"{path}\"");
+            }
+        }
+
     }
 }

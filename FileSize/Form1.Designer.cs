@@ -30,6 +30,8 @@
         {
             components = new System.ComponentModel.Container();
             treeView1 = new TreeView();
+            ctxMenuTree = new ContextMenuStrip(components);
+            toolStripMenuItem1 = new ToolStripMenuItem();
             button1 = new Button();
             statusStrip1 = new StatusStrip();
             toolStripStatusLabel1 = new ToolStripStatusLabel();
@@ -38,16 +40,32 @@
             columnHeader1 = new ColumnHeader();
             columnHeader2 = new ColumnHeader();
             columnHeader3 = new ColumnHeader();
+            ctxMenuTree.SuspendLayout();
             statusStrip1.SuspendLayout();
             SuspendLayout();
             // 
             // treeView1
             // 
+            treeView1.ContextMenuStrip = ctxMenuTree;
             treeView1.Location = new Point(12, 42);
             treeView1.Name = "treeView1";
             treeView1.Size = new Size(241, 382);
             treeView1.TabIndex = 0;
             treeView1.AfterSelect += treeView1_AfterSelect;
+            treeView1.NodeMouseClick += treeView1_NodeMouseClick;
+            // 
+            // ctxMenuTree
+            // 
+            ctxMenuTree.Items.AddRange(new ToolStripItem[] { toolStripMenuItem1 });
+            ctxMenuTree.Name = "contextMenuStrip1";
+            ctxMenuTree.Size = new Size(184, 48);
+            ctxMenuTree.Click += openInFileExplorerToolStripMenuItem_Click;
+            // 
+            // toolStripMenuItem1
+            // 
+            toolStripMenuItem1.Name = "toolStripMenuItem1";
+            toolStripMenuItem1.Size = new Size(183, 22);
+            toolStripMenuItem1.Text = "Open in File Explorer";
             // 
             // button1
             // 
@@ -82,6 +100,7 @@
             // listViewFiles
             // 
             listViewFiles.Columns.AddRange(new ColumnHeader[] { columnHeader1, columnHeader2, columnHeader3 });
+            listViewFiles.ContextMenuStrip = ctxMenuTree;
             listViewFiles.Location = new Point(259, 42);
             listViewFiles.Name = "listViewFiles";
             listViewFiles.Size = new Size(420, 382);
@@ -116,6 +135,7 @@
             Name = "Form1";
             Text = "Form1";
             Resize += Form1_Resize;
+            ctxMenuTree.ResumeLayout(false);
             statusStrip1.ResumeLayout(false);
             statusStrip1.PerformLayout();
             ResumeLayout(false);
@@ -133,5 +153,7 @@
         private ColumnHeader columnHeader1;
         private ColumnHeader columnHeader2;
         private ColumnHeader columnHeader3;
+        private ContextMenuStrip ctxMenuTree;
+        private ToolStripMenuItem toolStripMenuItem1;
     }
 }
