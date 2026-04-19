@@ -40,7 +40,7 @@ namespace FileSize
 
         private Dictionary<string, TreeNode> _pathMap = new();
 
-        // Simple class to pass data back to the UI
+        // Simple class to pass data back to the UI from the background scanner
         public class ScanUpdate
         {
             public string ParentPath { get; set; } = ""; // Use path as the key
@@ -51,7 +51,7 @@ namespace FileSize
         }
 
 
-        private DirectoryInfo rootDir;
+        private DirectoryInfo rootDir;          //the selected directory to scan
         private async void btnScan_Click(object sender, EventArgs e)
         {
             // 1. If a scan is already running, stop it first!
@@ -122,6 +122,9 @@ namespace FileSize
         private ConcurrentDictionary<string, long> _folderSizes = new();
         private ConcurrentDictionary<string, List<string>> _folderStructure = new();
 
+        //The scan runs in the background, but it reports progress by adding "ScanUpdate" items to the _updateBucket queue,
+        //which the UI timer flushes every 150ms.
+        //This way we avoid cross-thread issues and keep the UI responsive.
         private long SafeDynamicScan(DirectoryInfo dir, CancellationToken token)
         {
             if (token.IsCancellationRequested) return 0;
@@ -183,6 +186,11 @@ namespace FileSize
             return currentDirSize;
         }
 
+
+        //Called from a timer on the UI thread, so we can safely update the TreeView without cross-thread issues.
+        // Receives "ScanUpdate" items from the _updateBucket queue and applies them to the TreeView nodes.
+        // Only updates nodes that are already in the _pathMap (i.e., visible/expanded),
+        //      and it does so in batches to keep the UI responsive.
         private void FlushUpdateBucket(object sender, EventArgs e)
         {
             if (_updateBucket.IsEmpty) return;
