@@ -101,7 +101,7 @@ namespace FileSize
                     statusStrip1.Items[0].Text = $"Folders: {nFolder} | Files: {nFile}";
                     // Give the bucket one final flush to catch the last items
                     FlushUpdateBucket(null, null);
-                    _uiUpdateTimer.Stop();
+                    //_uiUpdateTimer.Stop();
                 }
                 catch (OperationCanceledException)
                 {
@@ -161,6 +161,7 @@ namespace FileSize
                     if (dir.FullName == rootDir.FullName)
                     {
                         this.Invoke(() => { treeView1.Nodes[0].Text = $"{dir.Name} - [{FormatSize(currentDirSize)}]"; });
+                        Thread.Sleep(10);
                     }
                 }
             }
@@ -172,6 +173,12 @@ namespace FileSize
             catch (Exception) { /* Catch-all for other IO issues */ }
 
             _folderSizes[dir.FullName] = currentDirSize;
+
+            if (dir.Name == "ViPEC")
+            {
+                if (true) { _folderSizes[dir.FullName] = currentDirSize; }
+                
+            }
 
             // Final signal for UI text/sorting update
             _updateBucket.Enqueue(new ScanUpdate
