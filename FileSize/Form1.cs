@@ -102,6 +102,8 @@ namespace FileSize
                 // Reset counters and start timers
                 nFolder = 0;
                 nFile = 0;
+                _depth = 0;
+                _totalSize = 0;
                 _uiUpdateTimer.Start(); // The bucket flusher
                 timer1.Start();         // Your stats timer
 
@@ -131,6 +133,8 @@ namespace FileSize
 
         private int nFolder = 0;
         private int nFile = 0;
+        private int _depth = 0;
+        private long _totalSize = 0;
 
         // Use this to store the "Source of Truth" for folder sizes and children
         private ConcurrentDictionary<string, long> _folderSizes = new();
@@ -141,13 +145,14 @@ namespace FileSize
         //This way we avoid cross-thread issues and keep the UI responsive.
         private long SafeDynamicScan(DirectoryInfo dir, CancellationToken token, int depth = 0)
         {
+            Interlocked.Exchange(ref _depth, depth);            // Track max depth for stats, thread-safe
             if (token.IsCancellationRequested) return 0;
             long currentDirSize = 0;
             var subDirs = new List<string>();
 
             try
             {
-                // 1. Files
+                // 1. Accumulate File Sizes
                 foreach (var file in dir.GetFiles())
                 {
                     if (token.IsCancellationRequested) return 0;
@@ -155,7 +160,7 @@ namespace FileSize
                     Interlocked.Increment(ref nFile);
                 }
 
-                // 2. Subdirectories - Discovery phase
+                // 2. Discover Subdirectories
                 DirectoryInfo[] discoveredDirs = dir.GetDirectories();
                 foreach (var subDir in discoveredDirs)
                 {
@@ -163,48 +168,54 @@ namespace FileSize
                     subDirs.Add(subDir.FullName);
                 }
 
-                // Save structure so UI can see children immediately
+                // Save structure so BeforeExpand can find children even mid-scan
                 _folderStructure[dir.FullName] = subDirs;
 
-                // 3. Recursion phase
+                // 3. Recurse into children
                 foreach (var subPath in subDirs)
                 {
-                    // Increment depth for children
+                    // Pass depth + 1 to children
                     currentDirSize += SafeDynamicScan(new DirectoryInfo(subPath), token, depth + 1);
                     Interlocked.Increment(ref nFolder);
 
-                    if (dir.FullName == rootDir.FullName)
-                    {
-                        this.Invoke(() => { treeView1.Nodes[0].Text = $"{dir.Name} - [{FormatSize(currentDirSize)}]"; });
-                        Thread.Sleep(10);
-                    }
+                    // REMOVED: this.Invoke and Thread.Sleep. 
+                    // The Root (depth 0) updates via _updateLevelBuckets[0] 
+                    // which FlushUpdateBucket prioritizes every 150ms.
                 }
             }
             catch (UnauthorizedAccessException)
             {
-                // If we can't read this folder, ensure we at least mark it empty in structure
                 _folderStructure[dir.FullName] = new List<string>();
             }
-            catch (Exception) { /* Catch-all for other IO issues */ }
+            catch (Exception) { /* Handle IO errors safely */ }
 
+            // Update the data cache
             _folderSizes[dir.FullName] = currentDirSize;
 
-            if (dir.Name == "ViPEC")
+            // 4. Enqueue Update with Priority
+            // Clamp to 31 to match the array size we initialized earlier
+            int bucketIndex = Math.Min(depth, 31);
+
+            if (bucketIndex == 1)
             {
-                if (true) { _folderSizes[dir.FullName] = currentDirSize; }
-                
+                //update root total at same time
+                Interlocked.Add(ref _totalSize, currentDirSize);
+                _updateLevelBuckets[0].Enqueue(new ScanUpdate
+                {
+                    FullPath = rootDir.FullName, // Always the root path
+                    ItemName = rootDir.Name,
+                    Size = Interlocked.Read(ref _totalSize),
+                    IsFolder = true
+                });
             }
 
-            // Final signal for UI text/sorting update
-            // When enqueuing, use the depth to pick the bucket
-            // Clamp to 31 to prevent IndexOutOfRangeException on very deep paths
-            int bucketIndex = Math.Min(depth, 31);
             _updateLevelBuckets[bucketIndex].Enqueue(new ScanUpdate
             {
+                ParentPath = dir.Parent?.FullName ?? "",
                 FullPath = dir.FullName,
                 ItemName = dir.Name,
                 Size = currentDirSize,
-                // ...
+                IsFolder = true
             });
 
             return currentDirSize;
@@ -354,7 +365,7 @@ namespace FileSize
         private void timer1_Tick(object sender, EventArgs e)
         {
             timer1.Stop();
-            statusStrip1.Items[0].Text = $"Folders: {nFolder} | Files: {nFile}";
+            statusStrip1.Items[0].Text = $"Folders: {nFolder} | Files: {nFile} | depth: {_depth}";
             timer1.Start();
         }
 
