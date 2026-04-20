@@ -9,7 +9,9 @@ namespace FileSize
     public partial class Form1 : Form
     {
         // A thread-safe bucket to hold updates until the UI is ready
-        private ConcurrentQueue<ScanUpdate> _updateBucket = new();
+        // Support up to 32 levels deep (more than enough for most drives)
+        private ConcurrentQueue<ScanUpdate>[] _updateLevelBuckets =
+            Enumerable.Range(0, 32).Select(_ => new ConcurrentQueue<ScanUpdate>()).ToArray();
         private System.Windows.Forms.Timer _uiUpdateTimer;
         private CancellationTokenSource _cts;
 
@@ -69,8 +71,20 @@ namespace FileSize
                 CancellationToken token = _cts.Token;
 
                 // Reset UI and Data
-                _updateBucket.Clear();
+                // --- RESET DATA STRUCTURES ---
+
+                // Clear the array of queues
+                foreach (var bucket in _updateLevelBuckets)
+                {
+                    bucket.Clear();
+                }
+
                 _pathMap.Clear();
+                _folderSizes.Clear();
+                _folderStructure.Clear();
+
+                // -----------------------------
+
                 treeView1.Nodes.Clear();
                 listViewFiles.Items.Clear(); // Clear your file pane too
 
@@ -125,7 +139,7 @@ namespace FileSize
         //The scan runs in the background, but it reports progress by adding "ScanUpdate" items to the _updateBucket queue,
         //which the UI timer flushes every 150ms.
         //This way we avoid cross-thread issues and keep the UI responsive.
-        private long SafeDynamicScan(DirectoryInfo dir, CancellationToken token)
+        private long SafeDynamicScan(DirectoryInfo dir, CancellationToken token, int depth = 0)
         {
             if (token.IsCancellationRequested) return 0;
             long currentDirSize = 0;
@@ -155,7 +169,8 @@ namespace FileSize
                 // 3. Recursion phase
                 foreach (var subPath in subDirs)
                 {
-                    currentDirSize += SafeDynamicScan(new DirectoryInfo(subPath), token);
+                    // Increment depth for children
+                    currentDirSize += SafeDynamicScan(new DirectoryInfo(subPath), token, depth + 1);
                     Interlocked.Increment(ref nFolder);
 
                     if (dir.FullName == rootDir.FullName)
@@ -181,13 +196,15 @@ namespace FileSize
             }
 
             // Final signal for UI text/sorting update
-            _updateBucket.Enqueue(new ScanUpdate
+            // When enqueuing, use the depth to pick the bucket
+            // Clamp to 31 to prevent IndexOutOfRangeException on very deep paths
+            int bucketIndex = Math.Min(depth, 31);
+            _updateLevelBuckets[bucketIndex].Enqueue(new ScanUpdate
             {
-                ParentPath = dir.Parent?.FullName ?? "",
                 FullPath = dir.FullName,
                 ItemName = dir.Name,
                 Size = currentDirSize,
-                IsFolder = true
+                // ...
             });
 
             return currentDirSize;
@@ -200,32 +217,35 @@ namespace FileSize
         //      and it does so in batches to keep the UI responsive.
         private void FlushUpdateBucket(object sender, EventArgs e)
         {
-            if (_updateBucket.IsEmpty) return;
             _uiUpdateTimer.Stop();
-
             HashSet<TreeNode> dirtyParents = new HashSet<TreeNode>();
-            var watch = Stopwatch.StartNew();
+            Stopwatch watch = Stopwatch.StartNew();
 
             treeView1.BeginUpdate();
             try
             {
-                while (_updateBucket.TryDequeue(out var update) && watch.ElapsedMilliseconds < 50)
+                // Process buckets from top (Root) to bottom (Deep folders)
+                for (int i = 0; i < _updateLevelBuckets.Length; i++)
                 {
-                    // Only update nodes already in the map (visible/expanded)
-                    if (_pathMap.TryGetValue(update.FullPath, out TreeNode currentNode))
-                    {
-                        currentNode.Tag = update.Size;
-                        currentNode.Text = $"{update.ItemName} - [{FormatSize(update.Size)}]";
+                    // If we've spent more than 40ms, stop and leave the rest for the next tick
+                    // This prioritizes top levels while keeping the UI smooth
+                    if (watch.ElapsedMilliseconds > 40) break;
 
-                        // If user is looking at an expanded folder that was empty, fill it now
-                        if (currentNode.IsExpanded && (currentNode.Nodes.Count == 0 ||
-                            (currentNode.Nodes.Count == 1 && currentNode.Nodes[0].Text == "Loading...")))
+                    var currentBucket = _updateLevelBuckets[i];
+
+                    // Process this level's queue
+                    while (currentBucket.TryDequeue(out var update))
+                    {
+                        if (_pathMap.TryGetValue(update.FullPath, out TreeNode node))
                         {
-                            PopulateNode(currentNode);
+                            node.Tag = update.Size;
+                            node.Text = $"{update.ItemName} - [{FormatSize(update.Size)}]";
+
+                            if (node.Parent != null) dirtyParents.Add(node.Parent);
                         }
 
-                        if (currentNode.Parent != null)
-                            dirtyParents.Add(currentNode.Parent);
+                        // Periodic time check inside the while loop for very large levels
+                        if (watch.ElapsedMilliseconds > 45) break;
                     }
                 }
 
@@ -237,7 +257,7 @@ namespace FileSize
             finally
             {
                 treeView1.EndUpdate();
-                if (!_updateBucket.IsEmpty) _uiUpdateTimer.Start();
+                _uiUpdateTimer.Start();
             }
         }
 
